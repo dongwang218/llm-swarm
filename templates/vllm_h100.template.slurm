@@ -1,10 +1,11 @@
 #!/bin/bash
 #SBATCH --job-name=llm-swarm
-#SBATCH --partition hopper-prod
 #SBATCH --gpus={{gpus}}
 #SBATCH --cpus-per-task=12
 #SBATCH --mem-per-cpu=11G
 #SBATCH -o slurm/logs/%x_%j.out
+#SBATCH --account=data
+#SBATCH --qos=data_high
 
 # For HF cluster internal users: Check if /fsx directory exists
 if [ -d "/fsx/.cache" ]; then
@@ -37,14 +38,14 @@ echo "http://$(hostname -I | awk '{print $1}'):$PORT" >> {{slurm_hosts_path}}
 unset HF_HUB_CACHE HF_ASSETS_CACHE HF_DATASETS_CACHE HF_MODULES_CACHE
 export HF_HUB_CACHE=/root/.cache/huggingface/hub
 export HF_HUB_ENABLE_HF_TRANSFER=0
-srun --container-image='vllm/vllm-openai:latest' \
-    --container-env=HUGGING_FACE_HUB_TOKEN,PORT,HF_HUB_CACHE,HF_HUB_ENABLE_HF_TRANSFER \
-    --container-mounts="$volume:/root/.cache/huggingface/hub" \
-    --no-container-mount-home \
-    --qos normal \
-    python3 -m vllm.entrypoints.api_server \
+srun python3 -m vllm.entrypoints.openai.api_server \
     --model $model \
-    --revision $revision \
-    --port $PORT
-
+    --port $PORT \
+    --host "0.0.0.0" \
+    --tensor-parallel-size 1 \
+    --dtype bfloat16 \
+    --trust-remote-code \
+    --max-model-len 131072 \
+    --gpu-memory-utilization 0.8 \
+    --enable-prefix-caching
 echo "End of job"

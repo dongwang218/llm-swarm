@@ -86,6 +86,7 @@ def test_generation(endpoint):
             "max_new_tokens": 200,
         },
     }
+    print('*************', endpoint)
     requests.post(endpoint, headers=headers, json=data)
     print("✅ test generation")
 
@@ -261,9 +262,9 @@ class LLMSwarm:
                 load_balance_endpoint_connected = False
 
                 # run docker streaming output while we validate the endpoints
-                self.container_id = run_command(command)
+                # self.container_id = run_command(command)
                 last_line = 0
-                while True:
+                while False: # True:
                     logs = run_command(f"sudo docker logs {self.container_id}")
                     lines = logs.split("\n")
                     for line in lines[last_line:]:
@@ -279,9 +280,11 @@ class LLMSwarm:
                             break
                         except requests.exceptions.ConnectionError:
                             sleep(1)
-            if self.config.inference_engine == "vllm":
-                self.endpoint = f"{self.endpoint}/generate"
+            # if self.config.inference_engine == "vllm":
+            #    self.endpoint = f"{self.endpoint}/generate"
         except (KeyboardInterrupt, Exception):
+            import traceback
+            traceback.print_exc()
             self.cleanup()
 
     def __enter__(self):
