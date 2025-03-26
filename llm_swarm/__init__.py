@@ -40,7 +40,9 @@ class LLMSwarmConfig:
 
 def run_command(command: str):
     print(f"running {command}")
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+    process = subprocess.Popen(
+        command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True
+    )
     output, errors = process.communicate()
     return_code = process.returncode
     assert return_code == 0, f"Command failed with error: {errors.decode('utf-8')}"
@@ -50,7 +52,9 @@ def run_command(command: str):
 def is_job_running(job_id: str):
     """Given job id, check if the job is in eunning state (needed to retrieve hostname from logs)"""
     command = "squeue --me --states=R | awk '{print $1}' | tail -n +2"
-    my_running_jobs = subprocess.run(command, shell=True, text=True, capture_output=True).stdout.splitlines()
+    my_running_jobs = subprocess.run(
+        command, shell=True, text=True, capture_output=True
+    ).stdout.splitlines()
     return job_id in my_running_jobs
 
 
@@ -58,8 +62,12 @@ def make_sure_jobs_are_still_running(job_ids: List[str]):
     if job_ids:
         for job_id in job_ids:
             if not is_job_running(job_id):
-                slumr_log_path = os.path.join(SLURM_LOGS_FOLDER, f"llm-swarm_{job_id}.out")
-                print(f"\n❌ Failed! Job {job_id} is not running; checkout {slumr_log_path} ")
+                slumr_log_path = os.path.join(
+                    SLURM_LOGS_FOLDER, f"llm-swarm_{job_id}.out"
+                )
+                print(
+                    f"\n❌ Failed! Job {job_id} is not running; checkout {slumr_log_path} "
+                )
                 raise
 
 
@@ -86,13 +94,15 @@ def test_generation(endpoint):
             "max_new_tokens": 200,
         },
     }
-    print('*************', endpoint)
+    print("*************", endpoint)
     requests.post(endpoint, headers=headers, json=data)
     print("✅ test generation")
 
 
 class Loader:
-    def __init__(self, desc="Loading...", end="✅ Done!", failed="❌ Aborted!", timeout=0.1):
+    def __init__(
+        self, desc="Loading...", end="✅ Done!", failed="❌ Aborted!", timeout=0.1
+    ):
         """
         A loader-like context manager
         Modified from https://stackoverflow.com/a/66558182/6611317
@@ -146,7 +156,9 @@ class Loader:
             print(f"\r{self.failed}", flush=True)
 
 
-def get_endpoints(endpoint_path: str, instances: int = 1, job_ids: Optional[List[str]] = None) -> List[str]:
+def get_endpoints(
+    endpoint_path: str, instances: int = 1, job_ids: Optional[List[str]] = None
+) -> List[str]:
     """Return list of endpoints from either a file or a comma separated string.
     It also checks if the endpoints are reachable.
 
@@ -163,7 +175,7 @@ def get_endpoints(endpoint_path: str, instances: int = 1, job_ids: Optional[List
             try:
                 endpoints = open(endpoint_path).read().splitlines()
                 assert (
-                    len(endpoints) == instances
+                    len(endpoints) == instances * 8
                 ), f"#endpoints {len(endpoints)} doesn't match #instances {instances}"  # could read an empty file
                 # due to race condition (slurm writing & us reading)
                 trying = False
@@ -189,7 +201,9 @@ class LLMSwarm:
     def __init__(self, config: LLMSwarmConfig) -> None:
         self.config = config
         self.cleaned_up = False
-        self.tokenizer = AutoTokenizer.from_pretrained(config.model, revision=config.revision)
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            config.model, revision=config.revision
+        )
         os.makedirs(SLURM_LOGS_FOLDER, exist_ok=True)
 
     def start(self):
@@ -198,31 +212,52 @@ class LLMSwarm:
             self.endpoint = self.config.debug_endpoint
             if self.config.inference_engine == "vllm":
                 self.endpoint = f"{self.config.debug_endpoint}/generate"
-            if self.config.debug_endpoint.startswith("https://api-inference.huggingface.co/"):
+            if self.config.debug_endpoint.startswith(
+                "https://api-inference.huggingface.co/"
+            ):
                 self.suggested_max_parallel_requests = 40
             else:
-                self.suggested_max_parallel_requests = self.config.per_instance_max_parallel_requests * self.config.instances
+                self.suggested_max_parallel_requests = (
+                    self.config.per_instance_max_parallel_requests
+                    * self.config.instances
+                )
             return
 
-        self.suggested_max_parallel_requests = self.config.per_instance_max_parallel_requests * self.config.instances
+        self.suggested_max_parallel_requests = (
+            self.config.per_instance_max_parallel_requests * self.config.instances
+        )
         with open(self.config.slurm_template_path) as f:
             slurm_template = f.read()
 
         # customize slurm template
         self.filename = f"{self.config.inference_engine}_{int(time.time())}"
-        slurm_path = os.path.join("slurm", f"{self.filename}_{self.config.inference_engine}.slurm")
-        slurm_host_path = os.path.join("slurm", f"{self.filename}_host_{self.config.inference_engine}.txt")
-        slurm_template = slurm_template.replace(r"{{slurm_hosts_path}}", slurm_host_path)
+        slurm_path = os.path.join(
+            "slurm", f"{self.filename}_{self.config.inference_engine}.slurm"
+        )
+        slurm_host_path = os.path.join(
+            "slurm", f"{self.filename}_host_{self.config.inference_engine}.txt"
+        )
+        slurm_template = slurm_template.replace(
+            r"{{slurm_hosts_path}}", slurm_host_path
+        )
         slurm_template = slurm_template.replace(r"{{model}}", self.config.model)
         slurm_template = slurm_template.replace(r"{{revision}}", self.config.revision)
         slurm_template = slurm_template.replace(r"{{gpus}}", str(self.config.gpus))
-        slurm_template = slurm_template.replace(r"{{model_max_length}}", str(min(self.tokenizer.model_max_length, 32768)))
-        slurm_template = slurm_template.replace(r"{{model_input_length}}", str(min(self.tokenizer.model_max_length - 100, 32768 - 100))) # `model_input_length` needs to be smaller than `model_max_length`
+        slurm_template = slurm_template.replace(
+            r"{{model_max_length}}", str(min(self.tokenizer.model_max_length, 32768))
+        )
+        slurm_template = slurm_template.replace(
+            r"{{model_input_length}}",
+            str(min(self.tokenizer.model_max_length - 100, 32768 - 100)),
+        )  # `model_input_length` needs to be smaller than `model_max_length`
         with open(slurm_path, "w") as f:
             f.write(slurm_template)
 
         # start inference instances
-        self.job_ids = [run_command(f"sbatch --parsable {slurm_path}") for _ in range(self.config.instances)]
+        self.job_ids = [
+            run_command(f"sbatch --parsable {slurm_path}")
+            for _ in range(self.config.instances)
+        ]
         print(f"Slurm Job ID: {self.job_ids}")
         print(f"📖 Slurm hosts path: {slurm_host_path}")
 
@@ -233,10 +268,14 @@ class LLMSwarm:
                 with Loader(f"Waiting for {job_id} to be created"):
                     while not is_job_running(job_id):
                         sleep(1)
-                slumr_log_path = os.path.join(SLURM_LOGS_FOLDER, f"llm-swarm_{job_id}.out")
+                slumr_log_path = os.path.join(
+                    SLURM_LOGS_FOLDER, f"llm-swarm_{job_id}.out"
+                )
                 print(f"📖 Slurm log path: {slumr_log_path}")
             # retrieve endpoints
-            self.endpoints = get_endpoints(slurm_host_path, self.config.instances, self.job_ids)
+            self.endpoints = get_endpoints(
+                slurm_host_path, self.config.instances, self.job_ids
+            )
             print(f"Endpoints running properly: {self.endpoints}")
             # warm up endpoints
             for endpoint in self.endpoints:
@@ -250,11 +289,22 @@ class LLMSwarm:
                 with open(self.config.load_balancer_template_path) as f:
                     # templates/nginx.template.conf
                     load_balancer_template = f.read()
-                servers = "\n".join([f"server {endpoint.replace('http://', '')};" for endpoint in self.endpoints])
+                servers = "\n".join(
+                    [
+                        f"server {endpoint.replace('http://', '')};"
+                        for endpoint in self.endpoints
+                    ]
+                )
                 unused_port = get_unused_port()
-                load_balancer_template = load_balancer_template.replace(r"{{servers}}", servers)
-                load_balancer_template = load_balancer_template.replace(r"{{port}}", str(unused_port))
-                load_balancer_path = os.path.join("slurm", f"{self.filename}_load_balancer.conf")
+                load_balancer_template = load_balancer_template.replace(
+                    r"{{servers}}", servers
+                )
+                load_balancer_template = load_balancer_template.replace(
+                    r"{{port}}", str(unused_port)
+                )
+                load_balancer_path = os.path.join(
+                    "slurm", f"{self.filename}_load_balancer.conf"
+                )
                 with open(load_balancer_path, "w") as f:
                     f.write(load_balancer_template)
                 load_balance_endpoint = f"http://localhost:{unused_port}"
@@ -264,7 +314,7 @@ class LLMSwarm:
                 # run docker streaming output while we validate the endpoints
                 # self.container_id = run_command(command)
                 last_line = 0
-                while False: # True:
+                while False:  # True:
                     logs = run_command(f"sudo docker logs {self.container_id}")
                     lines = logs.split("\n")
                     for line in lines[last_line:]:
@@ -284,6 +334,7 @@ class LLMSwarm:
             #    self.endpoint = f"{self.endpoint}/generate"
         except (KeyboardInterrupt, Exception):
             import traceback
+
             traceback.print_exc()
             self.cleanup()
 
